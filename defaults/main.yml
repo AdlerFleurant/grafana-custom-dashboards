@@ -3,6 +3,8 @@ cloudwatch_ds_enabled: false
 prometheus_ds_enabled: true
 elasticsearch_ds_enabled: true
 
+grafana_name: "custom"
+
 templates_path: templates/
 oc: oc
 es_tls_cacert: ''
