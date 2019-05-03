@@ -1,0 +1,12 @@
+  - name: Get ES TLS CA
+    command: "{{ oc }} -n openshift-logging get secret logging-elasticsearch -o jsonpath='{.data.admin-ca}'"
+    register: es_tls_cacert
+
+  - name: Get ES TLS client cert
+    command: "{{ oc }} -n openshift-logging get secret logging-elasticsearch -o jsonpath='{.data.admin-cert}'"
+    register: es_tls_clientcert
+
+  - name: Get ES TLS client key
+    command: "{{ oc }} -n openshift-logging get secret logging-elasticsearch -o jsonpath='{.data.admin-key}'"
+    register: es_tls_clientkey
+    

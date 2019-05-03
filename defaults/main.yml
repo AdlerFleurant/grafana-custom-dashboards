@@ -1,0 +1,15 @@
+---
+cloudwatch_ds_enabled: false
+prometheus_ds_enabled: true
+elasticsearch_ds_enabled: true
+
+templates_path: templates/
+oc: oc
+es_tls_cacert: ''
+es_tls_clientcert: ''
+es_tls_clientkey: ''
+role_path: "."
+state: ''
+aws_access_key: '123'
+aws_secret_key: '321'
+...

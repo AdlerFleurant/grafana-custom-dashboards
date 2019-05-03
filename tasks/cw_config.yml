@@ -1,0 +1,10 @@
+  - name: Create AWS credentials file
+    template:
+      src: "{{ role_path }}/secrets/credentials"
+      dest: "/tmp/credentials"
+
+  - name: Create cloudwatch-credentials secret
+    shell: "{{ oc }} create secret generic cloudwatch-credentials-{{ grafana_name }} --from-file=/tmp/credentials -n openshift-monitoring || echo cloudwatch-credentials-{{ grafana_name }} exists, skipping creation"
+
+  - name: Label cloudwatch-credentials secret
+    command: "{{ oc }} label secret cloudwatch-credentials-{{ grafana_name }} grafana-custom={{ grafana_name }} --overwrite"

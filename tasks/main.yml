@@ -1,0 +1,111 @@
+---
+# Create artifacts
+- block:
+  
+ 
+  - include_tasks: es_config.yml
+    when: elasticsearch_ds_enabled
+
+  - include_tasks: cw_config.yml
+    when: cloudwatch_ds_enabled
+  
+  - name: Get Prometheus encrypted password from existing grafana-datasources secret
+    shell: "{{ oc }} get -n openshift-monitoring secrets grafana-datasources -o jsonpath=\'{.data.prometheus\\.yaml}\' "
+    register: grafana_ds
+
+  - name: Set basicAuthPassword fact
+    set_fact:
+      prometheus_basicAuthPassword: "{{ grafana_ds.stdout | b64decode | from_json | json_query(\'datasources[0].basicAuthPassword\')  }}"
+    when: grafana_ds is defined and state != 'absent'
+
+  - name: Create temporary directory to process datasources.yml
+    tempfile:
+      state: directory
+    register: tempdir
+
+  - name: Replace vars in datasources.yml
+    template:
+      src: "{{ role_path }}/secrets/datasources.yml"
+      dest: "{{ tempdir.path }}/datasources.yml"
+
+  - name: Delete exising secret
+    command: "{{ oc }} delete secret -l grafana-custom={{ grafana_name }}"
+
+  - name: Create grafana-datasources secret (if not existed)
+    shell: "{{ oc }} create secret generic grafana-datasources-{{ grafana_name }} --from-file={{ tempdir.path }}/datasources.yml -n openshift-monitoring || echo grafana-datasources-{{ grafana_name }} exists, skipping creation"
+
+  - name: Delete temporary directory with datasources.yml
+    file:
+      path: "{{ tempdir.path }}"
+      state: absent
+
+  - name: Label grafana-datasources secret
+    command: "{{ oc }} label secret grafana-datasources-{{ grafana_name }} grafana-custom={{ grafana_name }} --overwrite"
+
+  - name: Create temporary directory to process manifests
+    tempfile:
+      state: directory
+    register: tempdir_manifests
+
+  - name: Copy templates
+    template:
+      src: "{{ item }}"
+      dest: "{{ tempdir_manifests.path }}/"
+    with_fileglob: 
+      - "{{ role_path }}/templates/*"
+
+  - name: Apply templates
+    command: "{{ oc }} apply -f {{ item }} -n openshift-monitoring"
+    with_fileglob: 
+       - "{{ tempdir_manifests.path }}/*"
+
+  - name: Annotate service account
+    command: '{{ oc }} annotate --overwrite -n openshift-monitoring sa grafana serviceaccounts.openshift.io/oauth-redirectreference.grafana-{{ grafana_name }}="{\"kind\":\"OAuthRedirectReference\", \"apiVersion\":\"v1\",\"reference\":{\"kind\":\"Route\",\"name\":\"grafana-{{ grafana_name }}\"}}" '
+
+  - name: Update dashboards (create/update)
+    include_tasks: update_dashboards.yaml
+    vars:
+      delete_dashboards: true
+    when: state != 'absent' and update_dashboards | default (true) | bool
+
+  - name: Delete temporary directory with manifests
+    file:
+      path: "{{ tempdir_manifests.path }}"
+      state: absent
+
+  - name: Add dashboard volumes
+    command: "{{ oc }} set volume deployment/grafana-{{ grafana_name }} --add --name=grafana-dashboard-k8s-{{ item.path.split('.')[0] }} -t configmap --configmap-name=grafana-dashboard-k8s-{{ item.path.split('.')[0] }} -m /grafana-dashboard-definitions/0/custom/k8s-{{ item.path.split('.')[0] }} --overwrite --containers=grafana --default-mode=420 -n openshift-monitoring"
+    with_filetree:
+      - "{{ role_path }}/dashboards/"
+
+  when: state != 'absent'
+
+# DELETE deployment and if it was the last one - delete all custom dashboards
+
+- block:
+  - name: Delete resources with label grafana-custom={{ grafana_name }}
+    command: "{{ oc }} delete all -l grafana-custom={{ grafana_name }} -n openshift-monitoring"
+    when: state == 'absent'
+
+  - name: Delete secrets with label grafana-custom={{ grafana_name }}
+    command: "{{ oc }} delete secrets -l grafana-custom={{ grafana_name }} -n openshift-monitoring"
+
+  - name: Remove annotation from grafana service account
+    command: "{{ oc }} annotate -n openshift-monitoring sa grafana serviceaccounts.openshift.io/oauth-redirectreference.grafana-{{ grafana_name }}-"
+    when: state == 'absent'
+
+  - name: Check if it was the last custom deployment
+    command: "{{ oc }} get deployment -l grafana-custom -n openshift-monitoring"
+    when: state == 'absent'
+    register: deployment_list
+
+  - name: Delete all custom configmaps if it was the last deployment
+    include_tasks: update_dashboards.yaml
+    vars:
+      delete_dashboards: true
+      update_dashboards: false
+    when: state == 'absent' and 'No resources found.' in deployment_list.stderr
+
+  when: state == 'absent'
+
+...
