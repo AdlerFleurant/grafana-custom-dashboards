@@ -40,7 +40,7 @@
       state: absent
 
   - name: Label grafana-datasources secret
-    command: "{{ oc }} label secret grafana-datasources-{{ grafana_name }} grafana-custom={{ grafana_name }} --overwrite"
+    command: "{{ oc }} label secret grafana-datasources-{{ grafana_name }} grafana-custom={{ grafana_name }} --overwrite -n openshift-monitoring"
 
   - name: Create temporary directory to process manifests
     tempfile:
